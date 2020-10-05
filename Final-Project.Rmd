@@ -1,0 +1,181 @@
+---
+title: "Final Project for Practical Machine Learning (ML)"
+author: "Gerard M Dion"
+date: "10/3/2020"
+output: html_document
+---
+
+
+```{r setup, echo=FALSE, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+This project tests our ability to predict the type of strategy used by 
+people exercising with dumb bells.  The A, B, C, D, E classe variable was a 
+controlled variable, with one of these being the best approach and all others
+being incorrect.  For more on this, please see this description on Way Back Machine
+about the Human Activity Recognition project
+
+[HAR Reference](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har)
+
+## Libraries
+
+For this project, I used both the Caret library, and the Random Forest library
+
+Both these libraries are designed for modeling and prediction.
+
+Loading in the Caret and Random Forest libraries
+
+```{r loadingLibs, echo=TRUE, cache=TRUE, eval=FALSE}
+library(caret)
+library(randomForest)
+```
+
+## Data
+
+Next I load in the data from the csv files downloaded from the website
+
+```{r loadingData, echo=TRUE, cache=TRUE, eval=FALSE}
+pmlTrainingRaw <- read.csv("pml-training.csv")
+finalTesting  <- read.csv("pml-testing.csv")
+```
+
+## Training, Testing, Validation
+
+In this next step, I seperate out the training data set, having the classe variable, 
+into Training and Testing datasets
+
+```{r partitioning, echo=TRUE, cache=TRUE, eval=FALSE}
+# create a partition with the training dataset 
+set.seed(582)
+trainingIndex  <- createDataPartition(pmlTrainingRaw$classe, p=0.6, list=FALSE)
+training <- pmlTrainingRaw[trainingIndex, ]
+testing  <- pmlTrainingRaw[-trainingIndex, ]
+```
+
+## Tidying Up Data
+
+The large number of variables (160) is somewhat un-Tidy, with some columns have
+numerous NA values, and others showing little variance, and not contributing
+to a model, but slowing it down. To speed up the modeling, columns are removed
+if they match certain criteria.
+
+1. Near Zero Variance, as determined by Caret
+2. More than 50% NA in a column (would have to be re-evaluated as a good criteria if removing them severely affected model accuracy)
+3. "Key" or "Index" or indentifying columns (names) are removed as they are all unique and don't reflect the technical aspects of study/data-collection
+
+
+```{r tidyingData, echo=TRUE, cache=TRUE, eval=FALSE}
+# remove variables with Nearly Zero Variance
+uninterestingColumns <- nearZeroVar(training)
+training <- training[, -uninterestingColumns]
+testing  <- testing[, -uninterestingColumns]
+
+# remove variables that are more than 50% NA
+mostlyNA_vars    <- sapply(training, function(x) mean(is.na(x))) > 0.5
+training <- training[, mostlyNA_vars==FALSE]
+testing  <- testing[, mostlyNA_vars==FALSE]
+
+# remove "KEY" or identifier variables
+training <- training[, -(1:5)]
+testing  <- testing[, -(1:5)]
+```
+
+## Using a Random Forest Model
+
+A random forest model is applied. This model is recommended when the variables of 
+both the predictor and result are varied, boolean/factor/categorical as well as numerical.
+
+```{r modeling, echo=TRUE, cache=TRUE, eval=FALSE}
+# model fit using Random Forest
+# choice of tuning parameters decided using advice from
+# https://machinelearningmastery.com/tune-machine-learning-algorithms-in-r/
+set.seed(582)
+myControl <- trainControl(method="repeatedcv",number=10,repeats=3)
+metric <- "Accuracy"
+mtry <- sqrt(ncol(training))
+tunegrid <- expand.grid(.mtry=mtry)
+modFitRandForest <- train(classe ~ ., data=training, method="rf",tuneGrid=tunegrid,metric=metric,trControl=myControl)
+```
+
+## Prediction on "Test" data.  
+
+This test data can be used to test different models, since it is not the final validation data. However, care should be taken to not use this data too much on different models, as it can introduce out-of-sample error on final validation data set.  Even using test data (from the partition) to weed out models is kind of over training the models.
+
+
+```{r predictionAndTest, echo=TRUE, cache=TRUE, eval=FALSE}
+# prediction on Test dataset using Random Forest
+predictRandForest <- predict(modFitRandForest, newdata=testing)
+testing$classe <- as.factor(testing$classe)
+confMatRandForest <- confusionMatrix(predictRandForest, testing$classe)
+confMatRandForest
+```
+
+## Confusion Matrix and Statistics
+
+The confusion matrix shows that the accuracy of prediction was 99.6%.  The 
+accuracy is reflected in the sub-metrics of False Positive, False Negative, True Positive, True Negative, and others
+
+
+```{r gettingReultsOfModel, eval=FALSE, echo=TRUE}
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 2232    4    0    0    0
+         B    0 1511   12    0    0
+         C    0    3 1356    6    0
+         D    0    0    0 1279    6
+         E    0    0    0    1 1436
+
+Overall Statistics
+                                          
+               Accuracy : 0.9959          
+                 95% CI : (0.9942, 0.9972)
+    No Information Rate : 0.2845          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.9948          
+                                          
+ Mcnemar's Test P-Value : NA              
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            1.0000   0.9954   0.9912   0.9946   0.9958
+Specificity            0.9993   0.9981   0.9986   0.9991   0.9998
+Pos Pred Value         0.9982   0.9921   0.9934   0.9953   0.9993
+Neg Pred Value         1.0000   0.9989   0.9981   0.9989   0.9991
+Prevalence             0.2845   0.1935   0.1744   0.1639   0.1838
+Detection Rate         0.2845   0.1926   0.1728   0.1630   0.1830
+Detection Prevalence   0.2850   0.1941   0.1740   0.1638   0.1832
+Balanced Accuracy      0.9996   0.9967   0.9949   0.9968   0.9978
+
+```
+
+# Validation
+
+Finally, we can apply the model a single time on the data having no classe variable.  There are only 20 of these. Had this been a real case, we would never know for sure the true value of the classe.  However, our Quiz provides an answer, with any 
+incorrect point value saying we got it wrong.  Netflix may have done something similar, but in a production model, predicting movie goers choice on "test" data may only be validating by going back to the movie goers and collecting addtional information.
+
+This is the nature of modeling.  Predictions that get checked become training data ultimately, and so on.
+
+```{r predicting, eval=FALSE, echo=TRUE}
+# Apply model to final 20 cases
+
+predictRandForest <- predict(modFitRandForest, newdata=finalTesting)
+predictRandForest
+
+
+```
+# Final Validation Results
+
+The final prediction of classe for the 20 cases is as follows:
+
+B A B A A E D B A A B C B A E E A B B B
+
+These gave 100% agreement when applied to the quiz, as expected for a check of 20 
+cases and a model accuracy of 99.6%
